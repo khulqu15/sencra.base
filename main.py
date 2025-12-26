@@ -9,6 +9,16 @@ from pdf2image import convert_from_path
 import tempfile
 import os
 import subprocess
+import camelot
+
+def libreoffice_convert(input_path: str, output_dir: str, out_format: str):
+    subprocess.run([
+        "libreoffice",
+        "--headless",
+        "--convert-to", out_format,
+        "--outdir", output_dir,
+        input_path
+    ], check=True)
 
 def pptx_to_pdf_linux(input_path: str, output_path: str):
     try:
@@ -117,7 +127,6 @@ async def convert_xlsx_to_docx(file: UploadFile = File(...)):
     finally:
         os.unlink(input_temp.name)
         
-# --- PDF → PPTX ---
 @app.post("/convert/pdf-to-pptx")
 async def convert_pdf_to_pptx(file: UploadFile = File(...)):
     if not file.filename.endswith(".pdf"):
@@ -191,7 +200,6 @@ async def convert_pptx_to_pdf(file: UploadFile = File(...)):
             os.unlink(output_path)
         os.rmdir(output_dir)
 
-
 @app.post("/convert/pptx-to-docx")
 async def convert_pptx_to_docx(file: UploadFile = File(...)):
     if not file.filename.endswith(".pptx"):
@@ -213,5 +221,61 @@ async def convert_pptx_to_docx(file: UploadFile = File(...)):
             doc.add_page_break()
         doc.save(output_temp.name)
         return FileResponse(output_temp.name, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=file.filename.replace(".pptx", ".docx"))
+    finally:
+        os.unlink(input_temp.name)
+
+@app.post("/convert/xlsx-to-pdf")
+async def convert_xlsx_to_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="File must be XLSX/XLS")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    input_temp.write(await file.read())
+    input_temp.close()
+
+    output_dir = tempfile.mkdtemp()
+    output_path = os.path.join(
+        output_dir,
+        file.filename.rsplit(".", 1)[0] + ".pdf"
+    )
+
+    try:
+        libreoffice_convert(input_temp.name, output_dir, "pdf")
+        return FileResponse(output_path, media_type="application/pdf")
+    finally:
+        os.unlink(input_temp.name)
+
+@app.post("/convert/pdf-to-xlsx")
+async def convert_pdf_to_xlsx(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be PDF")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    input_temp.write(await file.read())
+    input_temp.close()
+
+    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    output_temp.close()
+
+    try:
+        tables = camelot.read_pdf(input_temp.name, pages="all")
+        if tables.n == 0:
+            raise HTTPException(status_code=400, detail="No tables found")
+
+        wb = Workbook()
+        ws = wb.active
+
+        for table in tables:
+            for row in table.df.values.tolist():
+                ws.append(row)
+            ws.append([])
+
+        wb.save(output_temp.name)
+
+        return FileResponse(
+            output_temp.name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=file.filename.replace(".pdf", ".xlsx")
+        )
     finally:
         os.unlink(input_temp.name)
