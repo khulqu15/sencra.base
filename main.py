@@ -6,10 +6,22 @@ from openpyxl import Workbook, load_workbook
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pdf2image import convert_from_path
-import comtypes.client
 import tempfile
 import os
+import subprocess
 
+def pptx_to_pdf_linux(input_path: str, output_path: str):
+    try:
+        subprocess.run([
+            "libreoffice",
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", os.path.dirname(output_path),
+            input_path
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to convert PPTX to PDF: {e}")
+    
 app = FastAPI()
 
 @app.post("/convert/pdf-to-docx")
@@ -162,21 +174,24 @@ async def convert_pptx_to_pdf(file: UploadFile = File(...)):
     input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
     input_temp.write(await file.read())
     input_temp.close()
-    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    output_temp.close()
+
+    output_dir = tempfile.mkdtemp()
+    output_path = os.path.join(output_dir, file.filename.replace(".pptx", ".pdf"))
 
     try:
-        powerpoint = comtypes.client.CreateObject("PowerPoint.Application")
-        powerpoint.Visible = 1
-        presentation = powerpoint.Presentations.Open(input_temp.name)
-        presentation.SaveAs(output_temp.name, 32)
-        presentation.Close()
-        powerpoint.Quit()
-        return FileResponse(output_temp.name, media_type="application/pdf", filename=file.filename.replace(".pptx", ".pdf"))
+        pptx_to_pdf_linux(input_temp.name, output_path)
+        return FileResponse(
+            output_path,
+            media_type="application/pdf",
+            filename=file.filename.replace(".pptx", ".pdf")
+        )
     finally:
         os.unlink(input_temp.name)
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+        os.rmdir(output_dir)
 
-# --- PPTX → DOCX ---
+
 @app.post("/convert/pptx-to-docx")
 async def convert_pptx_to_docx(file: UploadFile = File(...)):
     if not file.filename.endswith(".pptx"):
