@@ -3,6 +3,10 @@ from fastapi.responses import FileResponse
 from pdf2docx import Converter
 from docx import Document
 from openpyxl import Workbook, load_workbook
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pdf2image import convert_from_path
+import comtypes.client
 import tempfile
 import os
 
@@ -98,5 +102,101 @@ async def convert_xlsx_to_docx(file: UploadFile = File(...)):
             filename=file.filename.rsplit(".", 1)[0] + ".docx"
         )
 
+    finally:
+        os.unlink(input_temp.name)
+        
+# --- PDF → PPTX ---
+@app.post("/convert/pdf-to-pptx")
+async def convert_pdf_to_pptx(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be PDF")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    input_temp.write(await file.read())
+    input_temp.close()
+    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
+    output_temp.close()
+
+    try:
+        images = convert_from_path(input_temp.name)
+        prs = Presentation()
+        for img in images:
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            img_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
+            img.save(img_path, "PNG")
+            slide.shapes.add_picture(img_path, 0, 0, width=prs.slide_width, height=prs.slide_height)
+            os.unlink(img_path)
+        prs.save(output_temp.name)
+        return FileResponse(output_temp.name, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", filename=file.filename.replace(".pdf", ".pptx"))
+    finally:
+        os.unlink(input_temp.name)
+
+# --- DOCX → PPTX ---
+@app.post("/convert/docx-to-pptx")
+async def convert_docx_to_pptx(file: UploadFile = File(...)):
+    if not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="File must be DOCX")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    input_temp.write(await file.read())
+    input_temp.close()
+    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
+    output_temp.close()
+
+    try:
+        doc = Document(input_temp.name)
+        prs = Presentation()
+        for para in doc.paragraphs:
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = para.text
+        prs.save(output_temp.name)
+        return FileResponse(output_temp.name, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", filename=file.filename.replace(".docx", ".pptx"))
+    finally:
+        os.unlink(input_temp.name)
+
+@app.post("/convert/pptx-to-pdf")
+async def convert_pptx_to_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="File must be PPTX")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
+    input_temp.write(await file.read())
+    input_temp.close()
+    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    output_temp.close()
+
+    try:
+        powerpoint = comtypes.client.CreateObject("PowerPoint.Application")
+        powerpoint.Visible = 1
+        presentation = powerpoint.Presentations.Open(input_temp.name)
+        presentation.SaveAs(output_temp.name, 32)
+        presentation.Close()
+        powerpoint.Quit()
+        return FileResponse(output_temp.name, media_type="application/pdf", filename=file.filename.replace(".pptx", ".pdf"))
+    finally:
+        os.unlink(input_temp.name)
+
+# --- PPTX → DOCX ---
+@app.post("/convert/pptx-to-docx")
+async def convert_pptx_to_docx(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pptx"):
+        raise HTTPException(status_code=400, detail="File must be PPTX")
+
+    input_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pptx")
+    input_temp.write(await file.read())
+    input_temp.close()
+    output_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    output_temp.close()
+
+    try:
+        prs = Presentation(input_temp.name)
+        doc = Document()
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    doc.add_paragraph(shape.text)
+            doc.add_page_break()
+        doc.save(output_temp.name)
+        return FileResponse(output_temp.name, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=file.filename.replace(".pptx", ".docx"))
     finally:
         os.unlink(input_temp.name)
