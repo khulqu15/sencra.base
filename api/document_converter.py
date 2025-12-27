@@ -10,7 +10,7 @@ import xlrd, xlwt
 from pdf2image import convert_from_path
 import xlrd
 import xlwt
-from utils import save_upload_to_temp, extract_pdf_tables, libreoffice_convert, doc_to_docx
+from utils import save_upload_to_temp, extract_pdf_tables, libreoffice_convert, doc_to_docx, libreoffice_pdf_to_docx
 from openpyxl import Workbook, load_workbook
 import aiofiles
 import csv
@@ -91,23 +91,20 @@ async def convert_csv_to_xlsx(file: UploadFile = File(...)):
     finally:
         os.unlink(csv_file)
 
-@router.post("/csv-to-docx")
-async def convert_csv_to_docx(file: UploadFile = File(...)):
-    csv_file = save_upload_to_temp(file, EXT_CSV)
-    out = tempfile.NamedTemporaryFile(delete=False, suffix=EXT_DOCX).name
+@router.post("/pdf-to-docx")
+async def pdf_to_docx(file: UploadFile = File(...)):
+    pdf_path = save_upload_to_temp(file, ".pdf")
+    out_dir = tempfile.mkdtemp()
     try:
-        async with aiofiles.open(csv_file, "r", encoding="utf-8") as f:
-            content = await f.read()
-        rows = list(csv.reader(StringIO(content)))
-        doc = Document()
-        table = doc.add_table(rows=len(rows), cols=len(rows[0]))
-        for r, row in enumerate(rows):
-            for c, val in enumerate(row):
-                table.rows[r].cells[c].text = val
-        doc.save(out)
-        return FileResponse(out, MIME_DOCX, file.filename.replace(EXT_CSV, EXT_DOCX))
+        docx_path = libreoffice_pdf_to_docx(pdf_path, out_dir)
+        return FileResponse(
+            docx_path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename=file.filename.replace(".pdf", ".docx")
+        )
     finally:
-        os.unlink(csv_file)
+        os.unlink(pdf_path)
+
 
 @router.post("/csv-to-doc")
 async def convert_csv_to_doc(file: UploadFile = File(...)):
@@ -768,17 +765,17 @@ async def convert_pdf_to_docx(file: UploadFile = File(...)):
         
 @router.post("/pdf-to-doc")
 async def convert_pdf_to_doc(file: UploadFile = File(...)):
-    pdf = save_upload_to_temp(file, ".pdf")
-    tmp_docx = tempfile.NamedTemporaryFile(delete=False, suffix=EXT_DOCX).name
-    out_doc = tempfile.NamedTemporaryFile(delete=False, suffix=".doc").name
+    pdf_path = save_upload_to_temp(file, ".pdf")
+    out_dir = tempfile.mkdtemp()
     try:
-        render_pdf_to_docx(pdf, tmp_docx)
-        libreoffice_convert(tmp_docx, os.path.dirname(out_doc), "doc")
-        return FileResponse(out_doc, media_type=MIME_DOC, filename=file.filename.replace(".pdf", ".doc"))
+        doc_path = libreoffice_convert(pdf_path, out_dir, "doc")
+        return FileResponse(
+            doc_path,
+            media_type="application/msword",
+            filename=file.filename.replace(".pdf", ".doc"),
+        )
     finally:
-        os.unlink(pdf)
-        if os.path.exists(tmp_docx):
-            os.unlink(tmp_docx)
+        os.unlink(pdf_path)
 
 @router.post("/pdf-to-csv")
 async def convert_pdf_to_csv(file: UploadFile = File(...)):

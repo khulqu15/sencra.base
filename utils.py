@@ -27,8 +27,37 @@ def extract_pdf_tables(pdf_path: str):
     tables = camelot.read_pdf(pdf_path, pages="all")
     return tables 
 
-def libreoffice_convert(input_path: str, output_dir: str, fmt: str):
+import subprocess
+import os
+
+def libreoffice_convert(input_path: str, output_dir: str, fmt: str) -> str:
     subprocess.run(
-        ["libreoffice", "--headless", "--convert-to", fmt, "--outdir", output_dir, input_path],
+        [
+            "libreoffice",
+            "--headless",
+            "--infilter=writer_pdf_import",
+            "--convert-to", fmt,
+            "--outdir", output_dir,
+            input_path,
+        ],
         check=True
     )
+
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    return os.path.join(output_dir, f"{base}.{fmt}")
+    
+def libreoffice_pdf_to_docx(input_pdf: str, output_dir: str) -> str:
+    subprocess.run(
+        [
+            "libreoffice",
+            "--headless",
+            "--infilter=writer_pdf_import",
+            "--convert-to", "docx",
+            "--outdir", output_dir,
+            input_pdf
+        ],
+        check=True
+    )
+
+    base = os.path.splitext(os.path.basename(input_pdf))[0]
+    return os.path.join(output_dir, base + ".docx")
