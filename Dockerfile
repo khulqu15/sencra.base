@@ -4,7 +4,10 @@ RUN apt-get update && apt-get install -y \
     libreoffice \
     libreoffice-writer \
     fonts-dejavu \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    fonts-dejavu \
+    fonts-liberation \
+    fonts-freefont-ttf
 
 WORKDIR /app
 COPY . /app

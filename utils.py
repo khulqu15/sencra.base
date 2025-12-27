@@ -48,16 +48,22 @@ def libreoffice_convert(input_path: str, output_dir: str, fmt: str) -> str:
                 input_path,
             ],
             check=True,
+            timeout=60,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(
+            status_code=504,
+            detail="LibreOffice conversion timed out",
         )
     except subprocess.CalledProcessError as e:
         raise HTTPException(
             status_code=500,
-            detail=f"LibreOffice conversion failed: {e.stderr.decode(errors='ignore')}",
+            detail=e.stderr.decode(errors="ignore") or "LibreOffice conversion failed",
         )
     base = os.path.splitext(os.path.basename(input_path))[0]
     return os.path.join(output_dir, f"{base}.{fmt}")
-    
+
 def libreoffice_pdf_to_docx(input_pdf: str, output_dir: str) -> str:
     return libreoffice_convert(input_pdf, output_dir, "docx")
