@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from fastapi.responses import FileResponse
+from fastapi.concurrency import run_in_threadpool
 import tempfile, os, csv
 import tempfile
 import csv
@@ -31,7 +32,7 @@ def extract_pdf_text(pdf_path: str) -> list[str]:
 
 def extract_pdf_tables(pdf_path: str):
     try:
-        return camelot.read_pdf(pdf_path, pages="all")
+        return camelot.read_pdf(pdf_path, pages="1-end", flavor="stream")
     except Exception:
         return []
 
@@ -756,10 +757,10 @@ async def convert_pdf_to_xlsx(file: UploadFile = File(...)):
 @router.post("/pdf-to-docx")
 async def convert_pdf_to_docx(file: UploadFile = File(...)):
     pdf = save_upload_to_temp(file, ".pdf")
-    out = tempfile.NamedTemporaryFile(delete=False, suffix=EXT_DOCX).name
+    out_dir = tempfile.mkdtemp()
     try:
-        render_pdf_to_docx(pdf, out)
-        return FileResponse(out, media_type=MIME_DOCX, filename=file.filename.replace(".pdf", EXT_DOCX))
+        out = await run_in_threadpool(pdf_to_docx_sync, pdf, out_dir)
+        return FileResponse(out, MIME_DOCX, file.filename.replace(".pdf", ".docx"))
     finally:
         os.unlink(pdf)
         
