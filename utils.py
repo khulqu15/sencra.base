@@ -4,6 +4,13 @@ import tempfile
 import camelot
 import subprocess
 import os
+import shutil
+
+def get_soffice_binary() -> str:
+    binary = shutil.which("soffice") or shutil.which("libreoffice")
+    if not binary:
+        raise HTTPException(status_code=503, detail="LibreOffice is not installed on the server")
+    return binary
 
 def save_upload_to_temp(file: UploadFile, suffix: str) -> str:
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
@@ -20,8 +27,7 @@ def response_file(path: str, filename: str, mime: str):
     
 def doc_to_docx(doc_path: str) -> str:
     out_dir = tempfile.mkdtemp()
-    libreoffice_convert(doc_path, out_dir, "docx")
-    return os.path.join(out_dir, os.path.basename(doc_path).replace(".doc", ".docx"))
+    return libreoffice_convert(doc_path, out_dir, "docx")
 
 def extract_pdf_tables(pdf_path: str):
     tables = camelot.read_pdf(pdf_path, pages="all")
@@ -31,33 +37,27 @@ import subprocess
 import os
 
 def libreoffice_convert(input_path: str, output_dir: str, fmt: str) -> str:
-    subprocess.run(
-        [
-            "libreoffice",
-            "--headless",
-            "--infilter=writer_pdf_import",
-            "--convert-to", fmt,
-            "--outdir", output_dir,
-            input_path,
-        ],
-        check=True
-    )
-
+    binary = get_soffice_binary()
+    try:
+        subprocess.run(
+            [
+                binary,
+                "--headless",
+                "--convert-to", fmt,
+                "--outdir", output_dir,
+                input_path,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LibreOffice conversion failed: {e.stderr.decode(errors='ignore')}",
+        )
     base = os.path.splitext(os.path.basename(input_path))[0]
     return os.path.join(output_dir, f"{base}.{fmt}")
     
 def libreoffice_pdf_to_docx(input_pdf: str, output_dir: str) -> str:
-    subprocess.run(
-        [
-            "libreoffice",
-            "--headless",
-            "--infilter=writer_pdf_import",
-            "--convert-to", "docx",
-            "--outdir", output_dir,
-            input_pdf
-        ],
-        check=True
-    )
-
-    base = os.path.splitext(os.path.basename(input_pdf))[0]
-    return os.path.join(output_dir, base + ".docx")
+    return libreoffice_convert(input_pdf, output_dir, "docx")
