@@ -15,8 +15,44 @@ from openpyxl import Workbook, load_workbook
 import aiofiles
 import csv
 from io import StringIO
+import pdfplumber
+import camelot
 
 router = APIRouter(prefix="/convert", tags=["Document Converter"])
+
+def extract_pdf_text(pdf_path: str) -> list[str]:
+    texts = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                texts.append(text)
+    return texts
+
+def extract_pdf_tables(pdf_path: str):
+    try:
+        return camelot.read_pdf(pdf_path, pages="all")
+    except Exception:
+        return []
+
+def render_pdf_to_docx(pdf_path: str, out_path: str):
+    texts = extract_pdf_text(pdf_path)
+    tables = extract_pdf_tables(pdf_path)
+    doc = Document()
+    doc.add_heading("Converted from PDF", level=1)
+    for page_text in texts:
+        for line in page_text.split("\n"):
+            doc.add_paragraph(line)
+        doc.add_paragraph("")
+    for i, table in enumerate(tables):
+        doc.add_heading(f"Table {i + 1}", level=2)
+        rows, cols = table.df.shape
+        doc_table = doc.add_table(rows=rows, cols=cols)
+        for r in range(rows):
+            for c in range(cols):
+                doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
+        doc.add_paragraph("")
+    doc.save(out_path)
 
 def conversion_error(message: str, detail: str | None = None, code: int = status.HTTP_422_UNPROCESSABLE_ENTITY):
     raise HTTPException(status_code=code, detail={"error": message, "detail": detail})
@@ -720,28 +756,13 @@ async def convert_pdf_to_xlsx(file: UploadFile = File(...)):
     finally:
         os.unlink(pdf)
 
-
 @router.post("/pdf-to-docx")
 async def convert_pdf_to_docx(file: UploadFile = File(...)):
     pdf = save_upload_to_temp(file, ".pdf")
     out = tempfile.NamedTemporaryFile(delete=False, suffix=EXT_DOCX).name
     try:
-        tables = extract_pdf_tables(pdf)
-        doc = Document()
-        if not tables:
-            doc.add_heading("Converted from PDF", level=1)
-            doc.add_paragraph("No tables were detected in this document.")
-        else:
-            for i, table in enumerate(tables):
-                doc.add_heading(f"Table {i + 1}", level=2)
-                rows, cols = table.df.shape
-                doc_table = doc.add_table(rows=rows, cols=cols)
-                for r in range(rows):
-                    for c in range(cols):
-                        doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
-                doc.add_paragraph()
-        doc.save(out)
-        return FileResponse(out, media_type=MIME_DOCX, filename=file.filename.replace(".pdf", EXT_DOCX),)
+        render_pdf_to_docx(pdf, out)
+        return FileResponse(out, media_type=MIME_DOCX, filename=file.filename.replace(".pdf", EXT_DOCX))
     finally:
         os.unlink(pdf)
         
@@ -751,21 +772,7 @@ async def convert_pdf_to_doc(file: UploadFile = File(...)):
     tmp_docx = tempfile.NamedTemporaryFile(delete=False, suffix=EXT_DOCX).name
     out_doc = tempfile.NamedTemporaryFile(delete=False, suffix=".doc").name
     try:
-        tables = extract_pdf_tables(pdf)
-        doc = Document()
-        if not tables:
-            doc.add_heading("Converted from PDF", level=1)
-            doc.add_paragraph("No tables were detected in this document.")
-        else:
-            for i, table in enumerate(tables):
-                doc.add_heading(f"Table {i + 1}", level=2)
-                rows, cols = table.df.shape
-                doc_table = doc.add_table(rows, cols)
-                for r in range(rows):
-                    for c in range(cols):
-                        doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
-                doc.add_paragraph()
-        doc.save(tmp_docx)
+        render_pdf_to_docx(pdf, tmp_docx)
         libreoffice_convert(tmp_docx, os.path.dirname(out_doc), "doc")
         return FileResponse(out_doc, media_type=MIME_DOC, filename=file.filename.replace(".pdf", ".doc"))
     finally:
