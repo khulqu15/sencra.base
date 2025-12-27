@@ -728,20 +728,23 @@ async def convert_pdf_to_docx(file: UploadFile = File(...)):
     try:
         tables = extract_pdf_tables(pdf)
         doc = Document()
-        for i, table in enumerate(tables):
-            doc.add_heading(f"Table {i + 1}", level=2)
-            rows, cols = table.df.shape
-            doc_table = doc.add_table(rows=rows, cols=cols)
-            for r in range(rows):
-                for c in range(cols):
-                    doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
-            doc.add_paragraph() 
+        if not tables:
+            doc.add_heading("Converted from PDF", level=1)
+            doc.add_paragraph("No tables were detected in this document.")
+        else:
+            for i, table in enumerate(tables):
+                doc.add_heading(f"Table {i + 1}", level=2)
+                rows, cols = table.df.shape
+                doc_table = doc.add_table(rows=rows, cols=cols)
+                for r in range(rows):
+                    for c in range(cols):
+                        doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
+                doc.add_paragraph()
         doc.save(out)
-        return FileResponse(out,media_type=MIME_DOCX,filename=file.filename.replace(".pdf", EXT_DOCX))
+        return FileResponse(out, media_type=MIME_DOCX, filename=file.filename.replace(".pdf", EXT_DOCX),)
     finally:
         os.unlink(pdf)
         
-
 @router.post("/pdf-to-doc")
 async def convert_pdf_to_doc(file: UploadFile = File(...)):
     pdf = save_upload_to_temp(file, ".pdf")
@@ -750,14 +753,18 @@ async def convert_pdf_to_doc(file: UploadFile = File(...)):
     try:
         tables = extract_pdf_tables(pdf)
         doc = Document()
-        for i, table in enumerate(tables):
-            doc.add_heading(f"Table {i + 1}", level=2)
-            rows, cols = table.df.shape
-            doc_table = doc.add_table(rows, cols)
-            for r in range(rows):
-                for c in range(cols):
-                    doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
-            doc.add_paragraph()
+        if not tables:
+            doc.add_heading("Converted from PDF", level=1)
+            doc.add_paragraph("No tables were detected in this document.")
+        else:
+            for i, table in enumerate(tables):
+                doc.add_heading(f"Table {i + 1}", level=2)
+                rows, cols = table.df.shape
+                doc_table = doc.add_table(rows, cols)
+                for r in range(rows):
+                    for c in range(cols):
+                        doc_table.rows[r].cells[c].text = str(table.df.iat[r, c])
+                doc.add_paragraph()
         doc.save(tmp_docx)
         libreoffice_convert(tmp_docx, os.path.dirname(out_doc), "doc")
         return FileResponse(out_doc, media_type=MIME_DOC, filename=file.filename.replace(".pdf", ".doc"))
