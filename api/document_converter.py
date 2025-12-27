@@ -1,6 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from fastapi.responses import FileResponse
-import tempfile, os, csv, subprocess
+import tempfile, os, csv
 import tempfile
 import csv
 from docx import Document
@@ -17,6 +17,9 @@ import csv
 from io import StringIO
 
 router = APIRouter(prefix="/convert", tags=["Document Converter"])
+
+def conversion_error(message: str, detail: str | None = None, code: int = status.HTTP_422_UNPROCESSABLE_ENTITY):
+    raise HTTPException(status_code=code, detail={"error": message, "detail": detail})
 
 EXT_PDF  = ".pdf"
 EXT_DOCX = ".docx"
@@ -44,7 +47,6 @@ async def convert_csv_to_xlsx(file: UploadFile = File(...)):
         ws = wb.active
         async with aiofiles.open(csv_file, newline="", encoding="utf-8") as f:
             content = await f.read()
-            
         reader = csv.reader(StringIO(content))
         for row in reader:
             ws.append(row)
