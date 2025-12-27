@@ -25,9 +25,7 @@ def doc_to_docx(doc_path: str) -> str:
 
 def extract_pdf_tables(pdf_path: str):
     tables = camelot.read_pdf(pdf_path, pages="all")
-    if tables.n == 0:
-        raise HTTPException(status_code=400, detail="No tables found")
-    return tables
+    return tables 
 
 def libreoffice_convert(input_path: str, output_dir: str, fmt: str):
     subprocess.run(
